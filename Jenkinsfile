@@ -17,44 +17,45 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 echo "Building Docker image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                script {
-                    sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
-                    sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
-                }
+                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
             }
         }
         
-        stage('Test Image') {
+        stage('Test Image Exists') {
             steps {
                 echo 'Testing Docker image...'
-                script {
-                    sh "docker images | grep ${DOCKER_IMAGE}"
-                }
+                sh "docker images | grep ${DOCKER_IMAGE}"
             }
         }
         
-        stage('Run Container') {
+        stage('Run Container For Test') {
             steps {
                 echo 'Running container for testing...'
-                script {
-                    sh '''
-                        docker rm -f test-container 2>/dev/null || true
-                        docker run -d --name test-container -p 8081:80 ${DOCKER_IMAGE}:${DOCKER_TAG}
-                        sleep 3
-                        curl -f http://localhost:8081 || exit 1
-                        echo "Container is running successfully!"
-                    '''
-                }
+                sh '''
+                    docker rm -f test-container || true
+                    docker run -d --name test-container -p 8081:80 ${DOCKER_IMAGE}:${DOCKER_TAG}
+                    sleep 5
+                '''
+            }
+        }
+
+        stage('Health Check') {
+            steps {
+                echo 'Checking container health...'
+                sh '''
+                    docker exec test-container sh -c "apk add curl >/dev/null 2>&1 || true"
+                    docker exec test-container curl -f http://localhost || exit 1
+                    echo "Container responded OK ✅"
+                '''
             }
         }
         
         stage('Cleanup') {
             steps {
                 echo 'Cleaning up test container...'
-                script {
-                    sh 'docker stop test-container || true'
-                    sh 'docker rm test-container || true'
-                }
+                sh "docker stop test-container || true"
+                sh "docker rm test-container || true"
             }
         }
     }
@@ -64,11 +65,9 @@ pipeline {
             echo "✅ Pipeline completed! Docker image ${DOCKER_IMAGE}:${DOCKER_TAG} is ready!"
         }
         failure {
-            echo '❌ Pipeline failed!'
-            script {
-                sh 'docker stop test-container 2>/dev/null || true'
-                sh 'docker rm test-container 2>/dev/null || true'
-            }
+            echo "❌ Pipeline failed!"
+            sh "docker stop test-container || true"
+            sh "docker rm test-container || true"
         }
     }
 }
